@@ -1,0 +1,8 @@
+---
+title: EDS223 - HW2
+subtitle: Exploring patterns of environmental justice
+author: Sophia Soriano
+date: today
+format: pdf
+---
+
