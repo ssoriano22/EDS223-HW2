@@ -81,6 +81,30 @@ Your first task is to explore historical redlining in Los Angeles and its legacy
     - a clear title and legend
 
 ```{r}
+# Create ejscreen los angeles subset
+
+# Filter to los angeles county in CA
+# Select relevant columns
+los_angeles <- ejscreen |> 
+    dplyr::filter((ST_ABBREV == "CA") & 
+                (CNTY_NAME == "Los Angeles County")) |> 
+    st_intersection(holc)
+
+# Group geometries by state borders (only used for tm_borders in maps)
+# west_us_states <- west_us |> 
+#     group_by(ST_ABBREV) |> 
+#     summarize()
+
+# Calculate average values for P_CANCER and P_PEOPCOLORPCT by country and state
+# west_us_counties <- aggregate(quant_df, by = list(west_us$ST_ABBREV, west_us$CNTY_NAME), FUN = mean)
+```
+
+```{r}
+# Create holc map
+tm_shape(los_angeles) +
+    tm_polygons() +
+tm_shape(holc) +
+    tm_fill(fill = "grade")
 
 ```
 
