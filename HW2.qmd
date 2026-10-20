@@ -6,3 +6,105 @@ date: today
 format: pdf
 ---
 
+## Rubric
+
+### Data analysis
+- Code must produce expected output based on correct data manipulation
+- Spatial operations must be performed correctly with appropriate verification (e.g., CRS matching, appropriate join methods, checking results)
+- Multiple approaches can be used to reach the correct output. Analysis must demonstrate critical interrogation of the approach used by showing justification and verification of intermediate steps. “Correct” answers are not sufficient. Justification and verification of approach should be demonstrated using the following:
+    - custom warning and error message (e.g. warning() and stop(); resources from EDS 221)
+    - informative comments (resource from EDS 220)
+    - BONUS: unit tests (e.g. using {testthat}; resources from EDS 221)
+
+### Plots, tables, and maps
+- All plots, tables, and maps must be clear, accurate, and effectively convey the intended information
+- All plots and maps must include the following elements:
+    - an informative title
+    - legends with legible titles, including units
+    - color scales that are accessible (i.e. make intuitive sense) and appropriate to the data (i.e. discrete vs. continuous)
+    - for maps: indication of scale and orientation (i.e. graticules/gridlines or scale bar and compass), and an appropiate basemap included where necessary
+- All tables should be rendered with legible titles and styling (e.g. {gt})
+
+### Written reflections
+- Reflections must be clear, accurate, and demonstrate a deep understanding of the analysis performed.
+
+### Professional Output
+- The rendered Quarto doc must show all required elements in a professional style with explanation of each step of analysis
+    - see examples of professional and unprofessional output on the Assignments page
+
+## Setup
+
+```{r}
+# Load packages
+library(tidyverse)
+library(here)
+library(sf)
+library(tmap)
+library(spData)
+
+# Set warnings to display as they occur
+options(warn = 1)
+```
+
+```{r}
+# Load data
+# EJScreen data - environmental and demographic US info at the block group level
+ejscreen <- sf::st_read(here("data","ejscreen","EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb"))
+# HOLC Redlining data - HOLC maps and area descriptions for LA
+holc <- sf::st_read(here("data","mapping-inequality","mapping-inequality-los-angeles.json"))
+# Bike + Ped Crash data - LA crash records
+crashes <- read_csv(here("data","SWITRS_LA","Crashes.csv"))
+
+# Warning - CRS - confirm crs match, transform if not
+if (st_crs(ejscreen)$epsg == st_crs(holc)$epsg){
+    # CRS match - true
+    print("CRS do match!")
+} else {
+    # CRS match - false
+    warning("CRS do NOT match!")
+    print("Changing HOLC data CRS to match EJScreen data CRS EPSG:3857...")
+    # CRS transform to match ejscreen data
+    ejscreen <- st_transform(ejscreen, crs = st_crs(ejscreen)$epsg)
+    holc <- st_transform(holc, crs = st_crs(ejscreen)$epsg)
+    print("CRS match complete!")
+}
+
+```
+
+## Part 1: Legacy of redlining in current environmental (in)justice
+
+Your first task is to explore historical redlining in Los Angeles and its legacy on present-day environmental justice.
+
+1. Create a map of historical redlining neighborhoods, including:
+    - neighborhoods colored by HOLC grade
+    - an appropriate base map
+    - a clear title and legend
+
+```{r}
+
+```
+
+2. Create a table summarizing:
+    - the percentage of census block groups that fall within each HOLC grade
+    - Also include the percent of census black groups that don’t fall within a HOLC grade in your table
+    - Hint: The HOLC data contains the grades and the EJScreen data contains the census blocks, so you will need to combine the data spatially before doing summary statistics. Once you combine and no longer need the geometries, you can use st_drop_geometry().
+3. Create at least two visualizations summarizing current conditions (from the EJScreen data) within HOLC grades using the mean of the following variables (you may combine variables in a single visualization or look at a single variable per plot):
+    - % low income
+    - percentile for Particulate Matter 2.5
+    - percentile for low life expectancy
+    - Use ggplot for your visualizations! You will first need to calculate mean of each variable grouped by HOLC grade.
+4. Write a brief paragraph reflecting on these results
+    - Interpret the patterns you observe in your results
+    - Discuss potential relationships between historical redlining grades and current environmental/socioeconomic conditions
+
+## Part 2: Legacy of redlining in pedstrian and bike accidents
+
+Your second task is to explore the legacy of historical redlining in Los Angeles on the report of pedestrian and bike crashes/ fatalities.
+
+For this assignment, you must produce the following based on observations from 2020-2025:
+
+1. A figure summarizing the percent of observations within redlined neighborhoods within each HOLC grade
+    - Create a visualizations that shows:
+    - The percentage of bike and pedestrian crashes and fatalities within each HOLC grade
+    - Include an appropiate title, axis labels, and legend
+    - Hints: Make sure to filter for bike and pedestrian crahes(PEDESTRIAN_ACCIDENT and BICYCLE_ACCIDENT). Look at the difference in NAs between POINT_X/POINT_Y and LONGITUDE/LATITUDE before you decide which to use. Ensure the SWITRS data and HOLC dataset have matching CRS’, then perform a spatial join to assign each crash to a corresponding HOLC grade.
