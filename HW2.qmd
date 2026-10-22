@@ -41,17 +41,24 @@ library(here)
 library(sf)
 library(tmap)
 library(spData)
+library(knitr)
+library(ggpubr)
 
 # Set warnings to display as they occur
 options(warn = 1)
+
+# Set ggplot theme
+set_theme(theme_bw())
 ```
 
 ```{r}
 # Load data
 # EJScreen data - environmental and demographic US info at the block group level
-ejscreen <- sf::st_read(here("data","ejscreen","EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb"))
+ejscreen <- sf::st_read(here("data","ejscreen",
+                                "EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb"))
 # HOLC Redlining data - HOLC maps and area descriptions for LA
-holc <- sf::st_read(here("data","mapping-inequality","mapping-inequality-los-angeles.json"))
+holc <- sf::st_read(here("data","mapping-inequality",
+                                "mapping-inequality-los-angeles.json"))
 # Bike + Ped Crash data - LA crash records
 crashes <- read_csv(here("data","SWITRS_LA","Crashes.csv"))
 
@@ -73,55 +80,157 @@ if (st_crs(ejscreen)$epsg == st_crs(holc)$epsg){
 
 ## Part 1: Legacy of redlining in current environmental (in)justice
 
-Your first task is to explore historical redlining in Los Angeles and its legacy on present-day environmental justice.
-
-1. Create a map of historical redlining neighborhoods, including:
-    - neighborhoods colored by HOLC grade
-    - an appropriate base map
-    - a clear title and legend
+### Question 1: Map of Historical Redlining Neighborhoods
 
 ```{r}
-# Create ejscreen los angeles subset
-
-# Filter to los angeles county in CA
-# Select relevant columns
-los_angeles <- ejscreen |> 
-    dplyr::filter((ST_ABBREV == "CA") & 
-                (CNTY_NAME == "Los Angeles County")) |> 
-    st_intersection(holc)
-
-# Group geometries by state borders (only used for tm_borders in maps)
-# west_us_states <- west_us |> 
-#     group_by(ST_ABBREV) |> 
-#     summarize()
-
-# Calculate average values for P_CANCER and P_PEOPCOLORPCT by country and state
-# west_us_counties <- aggregate(quant_df, by = list(west_us$ST_ABBREV, west_us$CNTY_NAME), FUN = mean)
-```
-
-```{r}
-# Create holc map
-tm_shape(los_angeles) +
-    tm_polygons() +
+#| warning: false
+#| fig-width: 10
+#| fig-height: 7
+# Correct HOLC colors per grade
+holc_colors = c("A" = "#76a865",
+                "B" = "#7cb5bd",
+                "C" = "#f1db11",
+                "D" = "#d9838d",
+                "NA" = "#000000")
+# Create holc polygon map over la county basemap
+tm_basemap(server = "Esri.WorldTopoMap") +
 tm_shape(holc) +
-    tm_fill(fill = "grade")
+    tm_polygons(fill = "grade",
+                fill_alpha = 0.5,
+                lwd = 0.5,
+                fill.scale = tm_scale_categorical(values = holc_colors),
+                fill.legend = tm_legend(title = "HOLC Grade",
+                                        # Specify legend layout
+                                        position = tm_pos_out("right"))) +
+tm_compass(position = c("left","bottom")) +
+tm_scalebar(position = c("left","bottom")) +
+tm_options(component.autoscale = FALSE) +
+tm_title("Los Angeles County: Redlined Neighborhoods",
+            frame = TRUE,
+            size = 1.5) +
+tm_layout(# Specify legend title size
+          legend.title.size = 1.0,
+          # Specify legend text size
+          legend.text.size = 0.8,
+          # Set font family
+          text.fontfamily = "sans",
+          # Set inner margins to give scalebar room
+          inner.margins = c(0.1,0.1,0.05,0.05)
+          )
+```
+Figure 1: Map of Los Angeles (LA) county in California (CA). Neighborhoods with HOLC grades assigned from 1935-1940 - A, B, C, and D - are represented on this map by color. An "A" HOLC grade is the best "residential security", while a "D" HOLC grade is the worst "residential security."
+
+### Question 2: Table of Census Blocks Within HOLC Grades
+
+```{r}
+#| tbl-cap: "Counts and percentages of EJScreen census blocks per HOLC Grade in LA county. The percentages were calculated using a total LA county census block total of 8988 (see Results Summary for details)."
+
+# Filter ejscreen to los angeles county in CA
+los_angeles_ejs <- ejscreen |> 
+    dplyr::filter((ST_ABBREV == "CA") & 
+                (CNTY_NAME == "Los Angeles County"))
+
+# Confirm st_intersect will work in st_join for ejscreen LA and holc datasets
+if(any(st_intersects(los_angeles_ejs, holc, sparse = FALSE))){
+  print("st_intersect will work - geometries overlap.")
+} else{
+  stop("st_intersect will not work - no overlapping geometries.")
+}
+
+# Join los_angeles_ejs to holc by intersecting geometry
+la_holc <- st_join(los_angeles_ejs, holc, join = st_intersects) |> 
+    # Select columns relevant to Part 1
+    select(ID,grade,LOWINCPCT,P_PM25,P_LIFEEXPPCT) |>
+    # Drop geometries
+    st_drop_geometry()
+
+# Create summary table of census block (cb) counts and percentages per holc grade
+la_holc_graden <- la_holc |> 
+    group_by(grade) |> 
+    summarise(cb_count = n()) |> 
+    mutate(cb_perc = (cb_count / nrow(la_holc)) * 100)
+
+# Use kable to format table output
+kable(la_holc_graden,
+        col.names = c("HOLC Grade","Census Blocks per Grade (Count)",
+                        "Census Blocks per Grade (Percent)"))
 
 ```
 
-2. Create a table summarizing:
-    - the percentage of census block groups that fall within each HOLC grade
-    - Also include the percent of census black groups that don’t fall within a HOLC grade in your table
-    - Hint: The HOLC data contains the grades and the EJScreen data contains the census blocks, so you will need to combine the data spatially before doing summary statistics. Once you combine and no longer need the geometries, you can use st_drop_geometry().
-3. Create at least two visualizations summarizing current conditions (from the EJScreen data) within HOLC grades using the mean of the following variables (you may combine variables in a single visualization or look at a single variable per plot):
-    - % low income
-    - percentile for Particulate Matter 2.5
-    - percentile for low life expectancy
-    - Use ggplot for your visualizations! You will first need to calculate mean of each variable grouped by HOLC grade.
-4. Write a brief paragraph reflecting on these results
-    - Interpret the patterns you observe in your results
-    - Discuss potential relationships between historical redlining grades and current environmental/socioeconomic conditions
+### Question 3: EJScreen Data Visualizations Within HOLC Grades
 
-## Part 2: Legacy of redlining in pedstrian and bike accidents
+```{r}
+# Create df for visualizations
+la_holc_sum <- la_holc |> 
+    # Group by grade
+    group_by(grade) |> 
+    # Calculate means by grade
+    summarise(mean_LOWINCPCT = mean(LOWINCPCT, na.rm = TRUE),
+              mean_P_PM25 = mean(P_PM25, na.rm = TRUE),
+              mean_P_LIFEEXPPCT = mean(P_LIFEEXPPCT, na.rm = TRUE)) |> 
+    rename("HOLC Grade" = "grade")
+```
+```{r}
+#| warning: false
+#| fig-width: 10
+#| fig-height: 7
+# Generate plots
+
+# Generate bar plot - mean_LOWINCPCT across HOLC grades
+sum_plot1 <- ggplot(la_holc_sum,
+    aes(x = `HOLC Grade`,
+        y = mean_LOWINCPCT*100,
+        fill = `HOLC Grade`)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = holc_colors) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x  = element_blank()) + 
+    labs(title = "Low Income",
+         y = "Mean %")
+
+# Generate bar plot - mean_P_PM25 across HOLC grades
+sum_plot2 <- ggplot(la_holc_sum,
+    aes(x = `HOLC Grade`,
+        y = mean_P_PM25,
+        fill = `HOLC Grade`)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = holc_colors) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x  = element_blank()) + 
+    labs(title = "Particulate Matter 2.5",
+         y = "Mean US Percentile")
+
+# Generate bar plot - mean_P_LIFEEXPPCT across HOLC grades
+sum_plot3 <- ggplot(la_holc_sum,
+    aes(x = `HOLC Grade`,
+        y = mean_P_LIFEEXPPCT,
+        fill = `HOLC Grade`)) +
+    geom_bar(stat = "identity") +
+    scale_fill_manual(values = holc_colors) +
+    theme(axis.title.x = element_blank(),
+          axis.text.x  = element_blank()) + 
+    labs(title = "Life Expectancy",
+         y = "Mean US Percentile")
+
+# Arrange bar plots in one figure
+ggarrange(sum_plot1, sum_plot2, sum_plot3, ncol = 3, nrow = 1,
+            labels = c("(a)", "(b)", "(c)"),
+            font.label = list(face = "plain"),
+            common.legend = TRUE,
+            legend = "bottom") |>
+# Add figure title 
+annotate_figure(top = text_grob("HOLC Neighborhoods: Current EJScreen Statistics",
+                                size = 20))
+```
+Figure 2: Bar plots showing current (2023) EJScreen data for three statistics - (a) low income (%), (b) US percentile for Particulate Matter (PM) 2.5, and (c) US percentile for low life expectancy - each averaged across historical HOLC neighborhood (redlining) grades. 
+
+### Question 4: Results Summary
+
+For LA county, the number of EJScreen census blocks within a Home Owners' Loan Corporation (HOLC) grade is not evenly distributed across the four grades - "A", "B", "C", "D". The "A" and "B" grades combined only have around 19% of the total LA county census blocks noted in EJScreen, while grade "C" has about 34% and grade "D" has 15% (32% of the census blocks were not associated with a grade) (_Table 2_). It should be noted that the total number of EJScreen census blocks in LA county was 6591, this number was increased to 8988 due to 1731 cases of multiple HOLC grades appearing in a single census block. To preserve HOLC data, data from a single census block may be used in calculating summary statistics for more than one HOLC grade.
+
+When comparing the HOLC grade means of three metrics recorded per census block in EJScreen - low income (%), US percentile for Particulate Matter (PM) 2.5, and US percentile for low life expectancy - a similar trend was observed across all three comparisons. The means calculated for low income (%), percentile for PM2.5, and percentile for low life expectancy all increase sequentially from grade "A" to grade "D" (_Figure 2_). This implies that historical redlining by HOLC from 1935-1940 is possibly correlated with current (2023 EJScreen) trends in low income, PM2.5, and low life expectancy. In other words, the census blocks located in grade "A" HOLC neighborhoods currently have the lowest mean percentage of low income households (14.89%), and fall in lower mean percentiles than the other three grades for annual PM2.5 air exposure (~72th percentile) and low life expectancy (~24th percentile). In contrast, grade "D" HOLC neighborhoods have the highest mean percentage of low income households (39.19%), and fall in higher mean percentiles than the other three grades for annual PM2.5 air exposure (~80th percentile) and low life expectancy (~53rd percentile). An alternative interpretation of the US percentile metric is that if a group - like grade "D" - is in the 53rd US percentile for low life expectancy, then only 47% of the US has a higher low life expectancy metric. Given these results, it appears that historically redlined "C" and "D" grade census blocks do currently experience more negative environmental and socioeconomic conditions than census blocks in historical HOLC "A" and "B" grade neighborhoods.
+
+## Part 2: Legacy of redlining in pedestrian and bike accidents
 
 Your second task is to explore the legacy of historical redlining in Los Angeles on the report of pedestrian and bike crashes/ fatalities.
 
@@ -132,3 +241,11 @@ For this assignment, you must produce the following based on observations from 2
     - The percentage of bike and pedestrian crashes and fatalities within each HOLC grade
     - Include an appropiate title, axis labels, and legend
     - Hints: Make sure to filter for bike and pedestrian crahes(PEDESTRIAN_ACCIDENT and BICYCLE_ACCIDENT). Look at the difference in NAs between POINT_X/POINT_Y and LONGITUDE/LATITUDE before you decide which to use. Ensure the SWITRS data and HOLC dataset have matching CRS’, then perform a spatial join to assign each crash to a corresponding HOLC grade.
+
+## Data
+
+The data used for this assignment is from the EJScreen: Environmental Justice Screening and Mapping Tool, which no longer exists online. However, our data can be accessed through the following link: [https://drive.google.com/file/d/1nG6Nj1bXfzQFOVMO8Km3eNy4SWu1YcIQ/view](https://drive.google.com/file/d/1nG6Nj1bXfzQFOVMO8Km3eNy4SWu1YcIQ/view)
+
+## References
+
+[EDS223](https://eds-223-geospatial.github.io/) - [UCSB MEDS 2027](https://bren.ucsb.edu/masters-programs/master-environmental-data-science)
