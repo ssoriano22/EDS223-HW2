@@ -25,6 +25,11 @@ EDS223-HW2
 
 The data used for this assignment is from the EJScreen: Environmental Justice Screening and Mapping Tool, which no longer exists online. However, our data can be accessed through the following link: [https://drive.google.com/file/d/1nG6Nj1bXfzQFOVMO8Km3eNy4SWu1YcIQ/view](https://drive.google.com/file/d/1nG6Nj1bXfzQFOVMO8Km3eNy4SWu1YcIQ/view)
 
+HOLC: Nelson, R. K., Winling, L, et al. (2023). Mapping Inequality: Redlining in New Deal America. Digital Scholarship Lab. Retrieved October 21, 2026, from https://dsl.richmond.edu/panorama/redlining.[https://dsl.richmond.edu/panorama/redlining/data](https://dsl.richmond.edu/panorama/redlining/data)
+
+Bike and pedestrian crash data: [https://tims.berkeley.edu/](https://tims.berkeley.edu/)
+
+
 ## Authors
 
 Sophia Soriano - [GitHub](https://github.com/ssoriano22), [LinkedIn](https://www.linkedin.com/in/smsoriano22/)
