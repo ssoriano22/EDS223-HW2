@@ -10,7 +10,15 @@ This repository contains files related to the HW2 assignment "Exploring patterns
 The below directory tree maps out the layout of this repository:
 
 ```
-In progress...
+EDS223-HW2
+└───.gitignore
+│   └───data
+│       ├── ejscreen
+│       ├── mapping-inequality
+│       └── SWITRS_LA
+├── HW2.pdf
+├── HW2.qmd
+└── README.md
 ```
 
 ## Data
