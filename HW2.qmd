@@ -58,21 +58,33 @@ ejscreen <- sf::st_read(here("data","ejscreen",
                                 "EJSCREEN_2023_BG_StatePct_with_AS_CNMI_GU_VI.gdb"))
 # HOLC Redlining data - HOLC maps and area descriptions for LA
 holc <- sf::st_read(here("data","mapping-inequality",
-                                "mapping-inequality-los-angeles.json"))
-# Bike + Ped Crash data - LA crash records
-crashes <- read_csv(here("data","SWITRS_LA","Crashes.csv"))
+                                "mapping-inequality-los-angeles.json")) |> 
+        # Correct invalid geometries to avoid error in st_join when using CRS 4326
+        st_make_valid()
 
+# Bike + Ped Crash data - LA crash records
+crashes <- read_csv(here("data","SWITRS_LA","Crashes.csv")) |>
+    # Remove rows w/ missing coordinates so convert to sf is possible
+    # Use POINT_X,POINT_Y each with only 3% missing data (Lat/Long each have 38%)
+    drop_na(POINT_X,POINT_Y) |> 
+    # Convert crashes csv to sf data - SWITRS uses CRS WGS 1984 EPSG:4326
+    st_as_sf(coords = c("POINT_X","POINT_Y"), crs = 4326)
+```
+
+```{r}
 # Warning - CRS - confirm crs match, transform if not
-if (st_crs(ejscreen)$epsg == st_crs(holc)$epsg){
-    # CRS match - true
+if ((st_crs(ejscreen)$epsg == st_crs(holc)$epsg) &
+     (st_crs(ejscreen)$epsg == st_crs(crashes)$epsg) &
+     (st_crs(holc)$epsg == st_crs(crashes)$epsg)){
+    # All three CRS match - true
     print("CRS do match!")
 } else {
     # CRS match - false
     warning("CRS do NOT match!")
-    print("Changing HOLC data CRS to match EJScreen data CRS EPSG:3857...")
-    # CRS transform to match ejscreen data
-    ejscreen <- st_transform(ejscreen, crs = st_crs(ejscreen)$epsg)
-    holc <- st_transform(holc, crs = st_crs(ejscreen)$epsg)
+    print("Changing EJScreen data CRS to match HOLC and Crashes data CRS EPSG:4326...")
+    # CRS transforms to match ejscreen data
+    ejscreen <- st_transform(ejscreen, crs = st_crs(holc)$epsg)
+    crashes <- st_transform(crashes, crs = st_crs(holc)$epsg)
     print("CRS match complete!")
 }
 
@@ -137,12 +149,23 @@ if(any(st_intersects(los_angeles_ejs, holc, sparse = FALSE))){
   stop("st_intersect will not work - no overlapping geometries.")
 }
 
-# Join los_angeles_ejs to holc by intersecting geometry
+# Join holc to los_angeles_ejs by intersecting geometry
 la_holc <- st_join(los_angeles_ejs, holc, join = st_intersects) |> 
     # Select columns relevant to Part 1
     select(ID,grade,LOWINCPCT,P_PM25,P_LIFEEXPPCT) |>
     # Drop geometries
     st_drop_geometry()
+
+# Warning - Join - check if number of rows matches original data (left join)
+if(nrow(los_angeles_ejs) == nrow(la_holc)){
+  print("Join matches original data dimensions of los_angeles_ejs")
+} else{
+  warning("Join does not match original data dimensions of los_angeles_ejs.")
+  print(paste("los_angeles_ejs has", nrow(los_angeles_ejs), "rows"))
+  print(paste("la_holc has", nrow(la_holc), "rows"))
+  print("Duplicated rows are census blocks intersected by 2+ grades.")
+  print("Duplicates will be kept - see Results Summary for details.")
+}
 
 # Create summary table of census block (cb) counts and percentages per holc grade
 la_holc_graden <- la_holc |> 
@@ -237,10 +260,173 @@ Your second task is to explore the legacy of historical redlining in Los Angeles
 For this assignment, you must produce the following based on observations from 2020-2025:
 
 1. A figure summarizing the percent of observations within redlined neighborhoods within each HOLC grade
-    - Create a visualizations that shows:
+    - Create a visualization that shows:
     - The percentage of bike and pedestrian crashes and fatalities within each HOLC grade
     - Include an appropiate title, axis labels, and legend
-    - Hints: Make sure to filter for bike and pedestrian crahes(PEDESTRIAN_ACCIDENT and BICYCLE_ACCIDENT). Look at the difference in NAs between POINT_X/POINT_Y and LONGITUDE/LATITUDE before you decide which to use. Ensure the SWITRS data and HOLC dataset have matching CRS’, then perform a spatial join to assign each crash to a corresponding HOLC grade.
+
+```{r}
+# Filter crashes to only Y PED accidents
+ped_crashes_filt <- crashes |> 
+    # Select only relevant columns to Part 2 (geometry sticks)
+    select(CASE_ID, PEDESTRIAN_ACCIDENT, COLLISION_SEVERITY) |> 
+    # Apply filter
+    filter(PEDESTRIAN_ACCIDENT == "Y")
+
+# Filter crashes to only Y BIKE accidents
+bike_crashes_filt <- crashes |> 
+    # Select only relevant columns to Part 2 (geometry sticks)
+    select(CASE_ID, BICYCLE_ACCIDENT, COLLISION_SEVERITY) |> 
+    # Apply filter
+    filter(BICYCLE_ACCIDENT == "Y")
+
+# Confirm st_intersect will work in st_join for holc and crashes_filt datasets
+if((any(st_intersects(holc, ped_crashes_filt, sparse = FALSE))) &
+    (any(st_intersects(holc, bike_crashes_filt, sparse = FALSE)))){
+  print("st_intersect will work - geometries overlap.")
+} else{
+  stop("st_intersect will not work - no overlapping geometries.")
+}
+
+# Join holc to ped_crashes by intersecting geometry
+holc_ped_crash <- st_join(ped_crashes_filt, holc, join = st_intersects) |> 
+    # Select columns relevant to Part 2
+    select(grade, CASE_ID, PEDESTRIAN_ACCIDENT, COLLISION_SEVERITY) |>
+    # Drop geometries
+    st_drop_geometry()
+
+# Join holc to bike_crashes by intersecting geometry
+holc_bike_crash <- st_join(bike_crashes_filt, holc, join = st_intersects) |> 
+    # Select columns relevant to Part 2
+    select(grade, CASE_ID, BICYCLE_ACCIDENT, COLLISION_SEVERITY) |>
+    # Drop geometries
+    st_drop_geometry()
+
+# Check for duplicates - none, all IDs have 1 grade match
+ped_crash_flag <- holc_ped_crash |> 
+    group_by(CASE_ID) |> 
+    summarise(Num_Grade_matches = n()) |> 
+    arrange(Num_Grade_matches, ascending = FALSE)
+bike_crash_flag <- holc_bike_crash |> 
+    group_by(CASE_ID) |> 
+    summarise(Num_Grade_matches = n()) |> 
+    arrange(Num_Grade_matches, ascending = FALSE)
+
+# Warning - Join - check if number of rows matches original data (left join)
+if((nrow(holc_ped_crash) == nrow(ped_crashes_filt)) &
+    (nrow(holc_bike_crash) == nrow(bike_crashes_filt))){
+  print("Joins match data dimensions of ped_crashes_filt and bike_crashes_filt.")
+} else{
+  warning("Joins do not match original data dimensions.")
+}
+
+# Create ped summary df
+sum_ped_crash <- holc_ped_crash |>
+    # Group by HOLC grade
+    group_by(grade) |> 
+    summarise(
+        # Count ped accidents per grade
+        num_Ped_Acc = n(),
+        # Percent ped accidents per grade
+        perc_Ped_Acc = num_Ped_Acc/nrow(holc_ped_crash) * 100,
+        # Count total fatalities per grade
+        # Each row where COLLISION_SEVERITY == 1.00 is TRUE equals 1
+        # Sum those 1s to get a count of rows with a value of TRUE
+        num_Ped_Fatal = sum(COLLISION_SEVERITY == 1.00),
+        # Percent total fatalities per grade
+        perc_Ped_Fatal = num_Ped_Fatal/nrow(holc_ped_crash) * 100
+    ) |> 
+    rename(`HOLC Grade` = grade)
+
+# Create bike summary df
+sum_bike_crash <- holc_bike_crash |>
+    # Group by HOLC grade
+    group_by(grade) |> 
+    summarise(
+        # Count total ped accidents per grade
+        num_Bike_Acc = n(),
+        # Percent ped accidents per grade
+        perc_Bike_Acc = num_Bike_Acc/nrow(holc_bike_crash) * 100,
+        # Count total fatalities per grade
+        # Each COLLISION_SEVERITY == 1.00 is TRUE = 1
+        # Sum those 1s to get a count of rows with a value of TRUE
+        num_Bike_Fatal = sum(COLLISION_SEVERITY == 1.00),
+        # Percent total fatalities per grade
+        perc_Bike_Fatal = num_Bike_Fatal/nrow(holc_bike_crash) * 100
+    ) |> 
+    rename(`HOLC Grade` = grade)
+```
+
+```{r}
+#| warning: false
+#| fig-width: 10
+#| fig-height: 7
+
+# Plot visualization
+
+# Plot 1: Pedestrian Accidents
+plt1 <- ggplot(sum_ped_crash,
+            aes(x = `HOLC Grade`,
+                y = perc_Ped_Acc,
+                fill = `HOLC Grade`)) +
+            geom_bar(stat = "identity") +
+            scale_fill_manual(values = holc_colors) +
+            theme(axis.title.x = element_blank(),
+                  axis.text.x  = element_blank()) + 
+            ylim(0,60) +
+            labs(title = "Pedestrian Accidents",
+                 y = "Accidents (%)")
+
+# Plot 2: Bike Accidents
+plt2 <- ggplot(sum_bike_crash,
+            aes(x = `HOLC Grade`,
+                y = perc_Bike_Acc,
+                fill = `HOLC Grade`)) +
+            geom_bar(stat = "identity") +
+            scale_fill_manual(values = holc_colors) +
+            theme(axis.title.x = element_blank(),
+                  axis.text.x  = element_blank(),
+                  axis.title.y  = element_blank()) +
+            ylim(0,60) +
+            labs(title = "   Bicycle Accidents")
+
+# Plot 3: Pedestrian Accidents
+plt3 <- ggplot(sum_ped_crash,
+            aes(x = `HOLC Grade`,
+                y = perc_Ped_Fatal,
+                fill = `HOLC Grade`)) +
+            geom_bar(stat = "identity") +
+            scale_fill_manual(values = holc_colors) +
+            theme(axis.title.x = element_blank(),
+                  axis.text.x  = element_blank()) +
+            ylim(0,5) +
+            labs(title = "Pedestrian Fatalities",
+                 y = "Fatalities (%)")
+
+# Plot 4: Bike Accidents
+plt4 <- ggplot(sum_bike_crash,
+            aes(x = `HOLC Grade`,
+                y = perc_Bike_Fatal,
+                fill = `HOLC Grade`)) +
+            geom_bar(stat = "identity") +
+            scale_fill_manual(values = holc_colors) +
+            theme(axis.title.x = element_blank(),
+                  axis.text.x  = element_blank(),
+                  axis.title.y  = element_blank()) +
+            ylim(0,5) +
+            labs(title = "    Bicycle Fatalities")
+
+# Arrange bar plots in one figure
+ggarrange(plt1, plt2, plt3, plt4, ncol = 2, nrow = 2,
+            labels = c("(a)", "(b)", "(c)", "(d)"),
+            font.label = list(face = "plain"),
+            common.legend = TRUE,
+            legend = "bottom") |>
+# Add figure title 
+annotate_figure(
+    top = text_grob("2020-2025 Pedestrian and Bicycle Accidents Across HOLC Grades",
+                    size = 20))
+    
+```
 
 ## Data
 
