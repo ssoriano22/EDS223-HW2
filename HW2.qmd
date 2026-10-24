@@ -6,32 +6,6 @@ date: today
 format: pdf
 ---
 
-## Rubric
-
-### Data analysis
-- Code must produce expected output based on correct data manipulation
-- Spatial operations must be performed correctly with appropriate verification (e.g., CRS matching, appropriate join methods, checking results)
-- Multiple approaches can be used to reach the correct output. Analysis must demonstrate critical interrogation of the approach used by showing justification and verification of intermediate steps. “Correct” answers are not sufficient. Justification and verification of approach should be demonstrated using the following:
-    - custom warning and error message (e.g. warning() and stop(); resources from EDS 221)
-    - informative comments (resource from EDS 220)
-    - BONUS: unit tests (e.g. using {testthat}; resources from EDS 221)
-
-### Plots, tables, and maps
-- All plots, tables, and maps must be clear, accurate, and effectively convey the intended information
-- All plots and maps must include the following elements:
-    - an informative title
-    - legends with legible titles, including units
-    - color scales that are accessible (i.e. make intuitive sense) and appropriate to the data (i.e. discrete vs. continuous)
-    - for maps: indication of scale and orientation (i.e. graticules/gridlines or scale bar and compass), and an appropiate basemap included where necessary
-- All tables should be rendered with legible titles and styling (e.g. {gt})
-
-### Written reflections
-- Reflections must be clear, accurate, and demonstrate a deep understanding of the analysis performed.
-
-### Professional Output
-- The rendered Quarto doc must show all required elements in a professional style with explanation of each step of analysis
-    - see examples of professional and unprofessional output on the Assignments page
-
 ## Setup
 
 ```{r}
@@ -135,7 +109,7 @@ Figure 1: Map of Los Angeles (LA) county in California (CA). Neighborhoods with 
 ### Question 2: Table of Census Blocks Within HOLC Grades
 
 ```{r}
-#| tbl-cap: "Counts and percentages of EJScreen census blocks per HOLC Grade in LA county. The percentages were calculated using a total LA county census block total of 8988 (see Results Summary for details)."
+#| tbl-cap: "Counts and percentages of EJScreen census blocks per HOLC Grade in LA county. The percentages were calculated using a total LA county census block total of 6591 (see Results Summary for details)."
 
 # Filter ejscreen to los angeles county in CA
 los_angeles_ejs <- ejscreen |> 
@@ -150,21 +124,42 @@ if(any(st_intersects(los_angeles_ejs, holc, sparse = FALSE))){
 }
 
 # Join holc to los_angeles_ejs by intersecting geometry
-la_holc <- st_join(los_angeles_ejs, holc, join = st_intersects) |> 
+la_holc_join <- st_join(los_angeles_ejs, holc, join = st_intersects) |> 
     # Select columns relevant to Part 1
     select(ID,grade,LOWINCPCT,P_PM25,P_LIFEEXPPCT) |>
     # Drop geometries
     st_drop_geometry()
 
 # Warning - Join - check if number of rows matches original data (left join)
-if(nrow(los_angeles_ejs) == nrow(la_holc)){
+if(nrow(los_angeles_ejs) == nrow(la_holc_join)){
   print("Join matches original data dimensions of los_angeles_ejs")
 } else{
   warning("Join does not match original data dimensions of los_angeles_ejs.")
   print(paste("los_angeles_ejs has", nrow(los_angeles_ejs), "rows"))
-  print(paste("la_holc has", nrow(la_holc), "rows"))
+  print(paste("la_holc_join has", nrow(la_holc_join), "rows"))
   print("Duplicated rows are census blocks intersected by 2+ grades.")
-  print("Duplicates will be kept - see Results Summary for details.")
+  print("Highest grade for such census blocks will be kept.")
+  print("See Results Summary for details.")
+}
+
+# Check for duplicates - 1731 census blocks overlapping 2+ HOLC grades
+la_holc_dups <- la_holc_join |> 
+    group_by(ID) |> 
+    summarise(Num_Grades = n()) |> 
+    filter(Num_Grades >= 2)
+
+# Keep only "highest" grade row for each census block ID w/ 2+ grades
+la_holc <- la_holc_join |> 
+    # Sort by ID, then HOLC grade
+    arrange(ID, grade) |> 
+    # Keep only first row per ID
+    distinct(ID, .keep_all = TRUE)
+
+# Warning - Join - confirm duplicate fix worked
+if(nrow(los_angeles_ejs) == nrow(la_holc)){
+  print("After removing duplicates, join matches original data dimensions!")
+} else{
+  stop("Join still does not match original data dimensions of los_angeles_ejs.")
 }
 
 # Create summary table of census block (cb) counts and percentages per holc grade
@@ -249,9 +244,9 @@ Figure 2: Bar plots showing current (2023) EJScreen data for three statistics - 
 
 ### Question 4: Results Summary
 
-For LA county, the number of EJScreen census blocks within a Home Owners' Loan Corporation (HOLC) grade is not evenly distributed across the four grades - "A", "B", "C", "D". The "A" and "B" grades combined only have around 19% of the total LA county census blocks noted in EJScreen, while grade "C" has about 34% and grade "D" has 15% (32% of the census blocks were not associated with a grade) (_Table 2_). It should be noted that the total number of EJScreen census blocks in LA county was 6591, this number was increased to 8988 due to 1731 cases of multiple HOLC grades appearing in a single census block. To preserve HOLC data, data from a single census block may be used in calculating summary statistics for more than one HOLC grade.
+For LA county, the number of EJScreen census blocks within a Home Owners' Loan Corporation (HOLC) grade is not evenly distributed across the four grades - "A", "B", "C", "D". The "A" and "B" grades combined only have around 19% of the total LA county census blocks noted in EJScreen, while grade "C" has about 29% and grade "D" has 11% (32% of the census blocks were not associated with a grade) (_Table 2_). It should be noted that the total number of EJScreen census blocks in LA county used to calculate percentages was 6591. After combining the EJScreen and HOLC data, 1731 census blocks intersected with multiple HOLC grades - in these cases, only the highest grade was kept per census block.
 
-When comparing the HOLC grade means of three metrics recorded per census block in EJScreen - low income (%), US percentile for Particulate Matter (PM) 2.5, and US percentile for low life expectancy - a similar trend was observed across all three comparisons. The means calculated for low income (%), percentile for PM2.5, and percentile for low life expectancy all increase sequentially from grade "A" to grade "D" (_Figure 2_). This implies that historical redlining by HOLC from 1935-1940 is possibly correlated with current (2023 EJScreen) trends in low income, PM2.5, and low life expectancy. In other words, the census blocks located in grade "A" HOLC neighborhoods currently have the lowest mean percentage of low income households (14.89%), and fall in lower mean percentiles than the other three grades for annual PM2.5 air exposure (~72th percentile) and low life expectancy (~24th percentile). In contrast, grade "D" HOLC neighborhoods have the highest mean percentage of low income households (39.19%), and fall in higher mean percentiles than the other three grades for annual PM2.5 air exposure (~80th percentile) and low life expectancy (~53rd percentile). An alternative interpretation of the US percentile metric is that if a group - like grade "D" - is in the 53rd US percentile for low life expectancy, then only 47% of the US has a higher low life expectancy metric. Given these results, it appears that historically redlined "C" and "D" grade census blocks do currently experience more negative environmental and socioeconomic conditions than census blocks in historical HOLC "A" and "B" grade neighborhoods.
+When comparing the HOLC grade means of three metrics recorded per census block in EJScreen - low income (%), US percentile for Particulate Matter (PM) 2.5, and US percentile for low life expectancy - a similar trend was observed across all three comparisons. The means calculated for low income (%), percentile for PM2.5, and percentile for low life expectancy all increase sequentially from grade "A" to grade "D" (_Figure 2_). This implies that historical redlining by HOLC from 1935-1940 is possibly correlated with current (2023 EJScreen) trends in low income, PM2.5, and low life expectancy. In other words, the census blocks located in grade "A" HOLC neighborhoods currently have the lowest mean percentage of low income households (15.39%), and fall in lower mean percentiles than the other three grades for annual PM2.5 air exposure (~72th percentile) and low life expectancy (~25th percentile). In contrast, grade "D" HOLC neighborhoods have the highest mean percentage of low income households (40.26%), and fall in higher mean percentiles than the other three grades for annual PM2.5 air exposure (~80th percentile) and low life expectancy (~55th percentile). An alternative interpretation of the US percentile metric is that if a group - like grade "D" - is in the 55th US percentile for low life expectancy, then only 45% of the US has a higher low life expectancy metric. Given these results, it appears that historically redlined "C" and "D" grade census blocks do currently experience more negative environmental and socioeconomic conditions than census blocks in historical HOLC "A" and "B" grade neighborhoods.
 
 ## Part 2: Legacy of redlining in pedestrian and bike accidents
 
@@ -398,7 +393,6 @@ plt3 <- ggplot(sum_ped_crash,
             scale_fill_manual(values = holc_colors) +
             theme(axis.title.x = element_blank(),
                   axis.text.x  = element_blank()) +
-            #ylim(0,5) +
             labs(title = "Pedestrian Fatalities",
                  y = "Fatalities (%)")
 
@@ -412,7 +406,6 @@ plt4 <- ggplot(sum_bike_crash,
             theme(axis.title.x = element_blank(),
                   axis.text.x  = element_blank(),
                   axis.title.y  = element_blank()) +
-            #ylim(0,5) +
             labs(title = "    Bicycle Fatalities")
 
 # Arrange bar plots in one figure
